@@ -1,0 +1,13 @@
+{
+  "name": "anthropic2openai",
+  "version": "1.0.0",
+  "description": "Proxy that translates Anthropic Messages API requests to OpenAI Chat Completions API",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "express": "^4.21.0"
+  }
+}
