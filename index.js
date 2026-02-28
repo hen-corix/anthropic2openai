@@ -10,7 +10,7 @@ require('dotenv').config();
 const OPENAI_BASE_URL = (
     process.env.A2O_OPENAI_BASE_URL || "https://api.openai.com/v1"
 ).replace(/\/+$/, "");
-const OPENAI_API_KEY = process.env.A2O_OPENAI_API_KEY || "";
+let OPENAI_API_KEY; // defined later during server start 
 const OPENAI_MODEL = process.env.A2O_OPENAI_MODEL || "gpt-4.1";
 // Optional model mapping: map Anthropic model names to specific OpenAI models via JSON in A2O_MODEL_MAP env var
 // Example: A2O_MODEL_MAP='{"claude-3-5-sonnet-20241022":"gpt-4o-mini"}'
@@ -563,6 +563,8 @@ function startServer() {
             console.error('Failed to load SSL key/cert', e);
         }
     }
+
+    OPENAI_API_KEY = process.env.A2O_OPENAI_API_KEY || "";
     if (!OPENAI_API_KEY) {
         console.error("A2O_OPENAI_API_KEY environment variable is required");
         process.exit(1);
