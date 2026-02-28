@@ -11,7 +11,7 @@ const OPENAI_BASE_URL = (
     process.env.A2O_OPENAI_BASE_URL || "https://api.openai.com/v1"
 ).replace(/\/+$/, "");
 let OPENAI_API_KEY; // defined later during server start 
-const OPENAI_MODEL = process.env.A2O_OPENAI_MODEL || "gpt-4.1";
+const OPENAI_MODEL = process.env.A2O_OPENAI_MODEL || "gpt-4o";
 // Optional model mapping: map Anthropic model names to specific OpenAI models via JSON in A2O_MODEL_MAP env var
 // Example: A2O_MODEL_MAP='{"claude-3-5-sonnet-20241022":"gpt-4o-mini"}'
 // Validate and parse model mapping on startup
