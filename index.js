@@ -1,5 +1,4 @@
 const express = require("express");
-// Use global.fetch if injected (e.g., by jest-fetch-mock), otherwise fall back to node-fetch
 const crypto = require("crypto");
 
 require('dotenv').config();
