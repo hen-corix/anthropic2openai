@@ -22,9 +22,9 @@ All settings are configured via environment variables:
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `OPENAI_API_KEY` | Yes | — | API key for the upstream OpenAI-compatible endpoint |
-| `OPENAI_BASE_URL` | No | `https://api.openai.com/v1` | Base URL of the OpenAI-compatible API (no trailing slash) |
-| `OPENAI_MODEL` | No | `gpt-4o` | Model identifier to use for all requests |
+| `A2O_OPENAI_API_KEY` | Yes | — | API key for the upstream OpenAI-compatible endpoint |
+| `A2O_OPENAI_BASE_URL` | No | `https://api.openai.com/v1` | Base URL of the OpenAI-compatible API (no trailing slash) |
+| `A2O_OPENAI_MODEL` | No | `gpt-4o` | Model identifier to use for all requests |
 | `A2O_PROXY_PORT` | No | `3456` | Local TCP port the proxy listens on |
 
 Copy `.env.example` to `.env` and fill in your values, or export them directly.
@@ -34,8 +34,8 @@ Copy `.env.example` to `.env` and fill in your values, or export them directly.
 Start the proxy:
 
 ```bash
-export OPENAI_API_KEY="sk-..."
-export OPENAI_MODEL="gpt-4o"
+export A2O_OPENAI_API_KEY="sk-..."
+export A2O_OPENAI_MODEL="gpt-4o"
 npm start
 ```
 
@@ -53,7 +53,7 @@ curl http://localhost:3456/v1/messages \
   }'
 ```
 
-The `model` field in the request is passed through in the response but does not affect which upstream model is used — that is controlled by `OPENAI_MODEL`.
+The `model` field in the request is passed through in the response but does not affect which upstream model is used — that is controlled by `A2O_OPENAI_MODEL`.
 
 ### Python (Anthropic SDK)
 
@@ -62,7 +62,7 @@ import anthropic
 
 client = anthropic.Anthropic(
     base_url="http://localhost:3456",
-    api_key="unused",  # the proxy uses OPENAI_API_KEY
+    api_key="unused",  # the proxy uses A2O_OPENAI_API_KEY
 )
 
 message = client.messages.create(
