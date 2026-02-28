@@ -25,6 +25,7 @@ All settings are configured via environment variables:
 | `A2O_OPENAI_API_KEY` | Yes | — | API key for the upstream OpenAI-compatible endpoint |
 | `A2O_OPENAI_BASE_URL` | No | `https://api.openai.com/v1` | Base URL of the OpenAI-compatible API (no trailing slash) |
 | `A2O_OPENAI_MODEL` | No | `gpt-4o` | Model identifier to use for all requests |
+| `A2O_MODEL_MAP` | No | `{}` | JSON map from Anthropic model names to OpenAI model names |
 | `A2O_PROXY_PORT` | No | `3456` | Local TCP port the proxy listens on |
 
 Copy `.env.example` to `.env` and fill in your values, or export them directly.

@@ -10,6 +10,32 @@ const OPENAI_BASE_URL = (
 ).replace(/\/+$/, "");
 const OPENAI_API_KEY = process.env.A2O_OPENAI_API_KEY || "";
 const OPENAI_MODEL = process.env.A2O_OPENAI_MODEL || "gpt-4.1";
+// Optional model mapping: map Anthropic model names to specific OpenAI models via JSON in A2O_MODEL_MAP env var
+// Example: A2O_MODEL_MAP='{"claude-3-5-sonnet-20241022":"gpt-4o-mini"}'
+// Validate and parse model mapping on startup
+const MODEL_MAP = (() => {
+  const raw = process.env.A2O_MODEL_MAP;
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) {
+      console.error('A2O_MODEL_MAP must be a JSON object');
+      return {};
+    }
+    // Ensure all values are non-empty strings
+    const invalid = Object.entries(parsed).filter(
+      ([k, v]) => typeof k !== 'string' || typeof v !== 'string' || v.trim() === ''
+    );
+    if (invalid.length) {
+      console.error('A2O_MODEL_MAP contains invalid entries:', invalid);
+      return {};
+    }
+    return parsed;
+  } catch (e) {
+    console.error('Failed to parse A2O_MODEL_MAP JSON', e);
+    return {};
+  }
+})();
 
 if (!OPENAI_API_KEY) {
   console.error("OPENAI_API_KEY environment variable is required");
@@ -177,8 +203,16 @@ function anthropicToOpenAI(body) {
     messages.push({ role, content });
   }
 
-  const openaiReq = {
-    model: OPENAI_MODEL,
+  // Determine which OpenAI model to use (allow mapping from Anthropic model name)
+const selectedModel = MODEL_MAP[body.model] || OPENAI_MODEL;
+if (MODEL_MAP[body.model]) {
+  console.log(`Using OpenAI model ${selectedModel} (mapped from Anthropic model ${body.model})`);
+} else {
+  console.log(`Using OpenAI model ${selectedModel} (default)`);
+}
+
+const openaiReq = {
+    model: selectedModel,
     messages,
     stream: !!body.stream,
   };
