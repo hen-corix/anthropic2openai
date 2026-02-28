@@ -37,11 +37,6 @@ const MODEL_MAP = (() => {
   }
 })();
 
-if (!OPENAI_API_KEY) {
-  console.error("OPENAI_API_KEY environment variable is required");
-  process.exit(1);
-}
-
 const app = express();
 app.use(express.json({ limit: "50mb" }));
 
@@ -527,10 +522,25 @@ app.post("/v1/messages", async (req, res) => {
 // Health check
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
+// ---------- exports ----------
+
+module.exports = {
+  app,
+  anthropicToOpenAI,
+  openAIToAnthropic,
+};
+
 // ---------- start ----------
 
-app.listen(PORT, () => {
-  console.log(`anthropic2openai proxy listening on http://localhost:${PORT}`);
-  console.log(`Forwarding to: ${OPENAI_BASE_URL}/chat/completions`);
-  console.log(`Using model: ${OPENAI_MODEL}`);
-});
+if (require.main === module) {
+  if (!OPENAI_API_KEY) {
+    console.error("A2O_OPENAI_API_KEY environment variable is required");
+    process.exit(1);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`anthropic2openai proxy listening on http://localhost:${PORT}`);
+    console.log(`Forwarding to: ${OPENAI_BASE_URL}/chat/completions`);
+    console.log(`Using model: ${OPENAI_MODEL}`);
+  });
+}
