@@ -3,6 +3,93 @@
 const { anthropicToOpenAI} = require('..');
 
 describe('anthropicToOpenAI conversion', () => {
+  beforeEach(() => {
+    fetch.resetMocks();
+  });
+  const supertest = require('supertest');
+  require('jest-fetch-mock');
+  const app = require('..').app;
+
+  // Helper to create a mock streaming OpenAI response
+  function mockOpenAIStream(chunks) {
+    // Create a mock of the Web Streams API's ReadableStream with getReader()
+    const encoder = new TextEncoder();
+    const sseLines = chunks.map(c => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n';
+    let idx = 0;
+    return {
+      ok: true,
+      body: {
+        getReader() {
+          return {
+            async read() {
+              if (idx < sseLines.length) {
+                // Return one character at a time to simulate streaming
+                const char = sseLines.charAt(idx);
+                idx++;
+                const value = encoder.encode(char);
+                return { done: false, value };
+              }
+              return { done: true };
+            },
+          };
+        },
+      },
+    };
+  }
+
+  test('streaming conversion handles tool calls', async () => {
+    // Prepare mock OpenAI streaming chunks
+    const chunks = [
+      // First chunk with tool_use start
+      {
+        choices: [{
+          delta: {
+            tool_calls: [{
+              index: 0,
+              id: 'tool-123',
+              function: { name: 'compute', arguments: '{"a":5}' },
+            }],
+          },
+          finish_reason: null,
+        }],
+      },
+      // Second chunk with partial arguments (simulating incremental)
+      {
+        choices: [{
+          delta: {
+            tool_calls: [{
+              index: 0,
+              function: { arguments: ',"b":7}' },
+            }],
+          },
+          finish_reason: null,
+        }],
+      },
+      // Final chunk with usage and finish reason
+      {
+        usage: { prompt_tokens: 10, completion_tokens: 20 },
+        choices: [{ finish_reason: 'stop' }],
+      },
+    ];
+
+    fetch.mockResolvedValueOnce(mockOpenAIStream(chunks));
+
+    const response = await supertest(app)
+      .post('/v1/messages')
+      .send({ model: 'gpt-4', messages: [], stream: true })
+      .expect(200)
+      .expect('Content-Type', /text\/event-stream/);
+
+    const text = response.text;
+    // Verify tool_use start event
+    expect(text).toMatch(/event: content_block_start\n.*"type":"tool_use"/s);
+    // Verify input_json_delta contains the partial JSON as received from OpenAI
+    expect(text).toMatch(/"partial_json":"{\\"a\\":5}"/s);
+    expect(text).toMatch(/"partial_json":",\\"b\\":7}"/s);
+    // Verify message_delta includes stop_reason end_turn
+    expect(text).toMatch(/event: message_delta[\s\S]*"stop_reason":"end_turn"/);
+  });
+
   test('converts user message with tool_result blocks', () => {
     const body = {
       model: 'gpt-4',
