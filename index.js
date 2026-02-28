@@ -4,12 +4,12 @@ const crypto = require("crypto");
 require('dotenv').config();
 
 // --- Configuration ---
-const PORT = parseInt(process.env.PROXY_PORT || "3456", 10);
+const PORT = parseInt(process.env.A2O_PROXY_PORT || "3456", 10);
 const OPENAI_BASE_URL = (
-  process.env.OPENAI_BASE_URL || "https://api.openai.com/v1"
+  process.env.A2O_OPENAI_BASE_URL || "https://api.openai.com/v1"
 ).replace(/\/+$/, "");
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1";
+const OPENAI_API_KEY = process.env.A2O_OPENAI_API_KEY || "";
+const OPENAI_MODEL = process.env.A2O_OPENAI_MODEL || "gpt-4.1";
 
 if (!OPENAI_API_KEY) {
   console.error("OPENAI_API_KEY environment variable is required");

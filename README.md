@@ -25,7 +25,7 @@ All settings are configured via environment variables:
 | `OPENAI_API_KEY` | Yes | — | API key for the upstream OpenAI-compatible endpoint |
 | `OPENAI_BASE_URL` | No | `https://api.openai.com/v1` | Base URL of the OpenAI-compatible API (no trailing slash) |
 | `OPENAI_MODEL` | No | `gpt-4o` | Model identifier to use for all requests |
-| `PROXY_PORT` | No | `3456` | Local TCP port the proxy listens on |
+| `A2O_PROXY_PORT` | No | `3456` | Local TCP port the proxy listens on |
 
 Copy `.env.example` to `.env` and fill in your values, or export them directly.
 
@@ -39,7 +39,7 @@ export OPENAI_MODEL="gpt-4o"
 npm start
 ```
 
-Then point any Anthropic-compatible client at `http://localhost:3456` (or the port set via `PROXY_PORT`) as the base URL.
+Then point any Anthropic-compatible client at `http://localhost:3456` (or the port set via `A2O_PROXY_PORT`) as the base URL.
 
 ### curl example
 
