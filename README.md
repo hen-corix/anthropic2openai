@@ -27,6 +27,8 @@ All settings are configured via environment variables:
 | `A2O_OPENAI_MODEL` | No | `gpt-4o` | Model identifier to use for all requests |
 | `A2O_MODEL_MAP` | No | `{}` | JSON map from Anthropic model names to OpenAI model names |
 | `A2O_PROXY_PORT` | No | `3456` | Local TCP port the proxy listens on |
+| `A2O_SSL_KEY_PATH` | No | `""` | Filesystem path to TLS private key (PEM) |
+| `A2O_SSL_CERT_PATH` | No | `""` | Filesystem path to TLS certificate (PEM) |
 
 Copy `.env.example` to `.env` and fill in your values, or export them directly.
 
@@ -80,3 +82,35 @@ print(message.content[0].text)
 |---|---|---|
 | POST | `/v1/messages` | Anthropic Messages API (proxied) |
 | GET | `/health` | Health check — returns `{"status": "ok"}` |
+
+### SSL/TLS configuration
+
+The proxy can serve HTTPS when you provide a TLS private key and certificate.
+
+**Environment variables**
+
+- `A2O_SSL_KEY_PATH` – Path to a PEM‑encoded private key file.
+- `A2O_SSL_CERT_PATH` – Path to a PEM‑encoded certificate file.
+
+If both variables are set and the files can be read, the server starts with HTTPS on the port defined by `A2O_PROXY_PORT`. Otherwise it falls back to plain HTTP.
+
+**Generating a self‑signed certificate**
+
+```bash
+# Generate a private key
+openssl genpkey -algorithm RSA -out key.pem -pkeyopt rsa_keygen_bits:2048
+
+# Generate a self‑signed certificate (valid for 365 days)
+openssl req -new -x509 -key key.pem -out cert.pem -days 365 -subj "/CN=localhost"
+```
+
+Place `key.pem` and `cert.pem` somewhere safe and set the environment variables, e.g.:
+
+```bash
+export A2O_SSL_KEY_PATH="/path/to/key.pem"
+export A2O_SSL_CERT_PATH="/path/to/cert.pem"
+npm start
+```
+
+The proxy will now listen on `https://localhost:${A2O_PROXY_PORT}`.
+
