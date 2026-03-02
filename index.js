@@ -203,13 +203,13 @@ function anthropicToOpenAI(body) {
                     ? parts[0].text
                     : parts.length > 0
                         ? parts
-                        : "";
+                        : null;
         } else {
-            content = "";
+            content = null;
         }
 
         // Only push message if it has non-empty content
-        if (content !== "" && content !== null) {
+        if (content !== null && content !== "" && content !== undefined) {
             messages.push({role, content});
         }
     }
@@ -311,29 +311,33 @@ function openAIToAnthropic(openaiRes, requestModel) {
 async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
     const msgId = genId("msg");
 
-    // Send message_start
-    const messageStart = {
-        id: msgId,
-        type: "message",
-        role: "assistant",
-        content: [],
-        model: requestModel || OPENAI_MODEL,
-        stop_reason: null,
-        stop_sequence: null,
-        usage: {input_tokens: 0, output_tokens: 0},
-    };
-    sendSSE(res, "message_start", {type: "message_start", message: messageStart});
-
     let contentBlockStarted = false;
     let blockIndex = 0;
     let toolCallAccum = {}; // id -> { id, name, argsJson }
     let stopReason = "end_turn";
     let inputTokens = 0;
     let outputTokens = 0;
+    let messageStartSent = false;
 
     const reader = openaiResponse.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+
+    function sendMessageStart() {
+        if (messageStartSent) return;
+        messageStartSent = true;
+        const messageStart = {
+            id: msgId,
+            type: "message",
+            role: "assistant",
+            content: [],
+            model: requestModel || OPENAI_MODEL,
+            stop_reason: null,
+            stop_sequence: null,
+            usage: {input_tokens: inputTokens, output_tokens: outputTokens},
+        };
+        sendSSE(res, "message_start", {type: "message_start", message: messageStart});
+    }
 
     try {
         while (true) {
@@ -364,6 +368,11 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
                 if (chunk.usage) {
                     inputTokens = chunk.usage.prompt_tokens || 0;
                     outputTokens = chunk.usage.completion_tokens || 0;
+                }
+
+                // Send message_start on first relevant chunk if not already sent
+                if (!messageStartSent && (delta || choice?.finish_reason)) {
+                    sendMessageStart();
                 }
 
                 if (!delta && !choice?.finish_reason) continue;
@@ -516,6 +525,9 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
             index: tc.blockIndex,
         });
     }
+
+    // Ensure message_start was sent (edge case: empty stream)
+    sendMessageStart();
 
     // message_delta with stop_reason and usage
     sendSSE(res, "message_delta", {
