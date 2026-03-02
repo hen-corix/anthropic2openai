@@ -589,14 +589,38 @@ app.post("/v1/messages", async (req, res) => {
             res.json(anthropicRes);
         }
     } catch (err) {
-        console.error("Proxy error:", err);
-        res.status(500).json({
-            type: "error",
-            error: {
-                type: "api_error",
-                message: err.message,
-            },
-        });
+        // Provide more specific error responses based on error type
+        if (err.name === 'FetchError' || err instanceof TypeError) {
+            // Network or fetch-related error
+            console.error("Network error while contacting OpenAI:", err);
+            res.status(502).json({
+                type: "error",
+                error: {
+                    type: "upstream_error",
+                    message: "Failed to reach OpenAI API. Check network connectivity and API key.",
+                },
+            });
+        } else if (err.name === 'SyntaxError') {
+            // JSON parsing error from OpenAI response
+            console.error("Response parsing error:", err);
+            res.status(502).json({
+                type: "error",
+                error: {
+                    type: "upstream_error",
+                    message: "Invalid response from OpenAI API.",
+                },
+            });
+        } else {
+            // Generic server error
+            console.error("Proxy error:", err);
+            res.status(500).json({
+                type: "error",
+                error: {
+                    type: "api_error",
+                    message: err.message,
+                },
+            });
+        }
     }
 });
 
@@ -641,9 +665,10 @@ function startServer() {
         }
     }
 
-    OPENAI_API_KEY = process.env.A2O_OPENAI_API_KEY || "";
+    // Validate API key configuration
+    OPENAI_API_KEY = (process.env.A2O_OPENAI_API_KEY || "").trim();
     if (!OPENAI_API_KEY) {
-        console.error("A2O_OPENAI_API_KEY environment variable is required");
+        console.error("A2O_OPENAI_API_KEY environment variable is required and cannot be empty");
         process.exit(1);
     }
 
