@@ -87,7 +87,17 @@ function anthropicToOpenAI(body) {
 
     // Convert messages
     for (const msg of body.messages || []) {
-        const role = msg.role === "assistant" ? "assistant" : "user";
+        // Only "user" and "assistant" roles are expected from Anthropic API
+        // System prompts are handled separately via body.system
+        let role;
+        if (msg.role === "assistant") {
+            role = "assistant";
+        } else if (msg.role === "user") {
+            role = "user";
+        } else {
+            console.warn(`Unexpected role "${msg.role}" in message, treating as "user"`);
+            role = "user";
+        }
         let content;
 
         if (typeof msg.content === "string") {
@@ -198,7 +208,10 @@ function anthropicToOpenAI(body) {
             content = "";
         }
 
-        messages.push({role, content});
+        // Only push message if it has non-empty content
+        if (content !== "" && content !== null) {
+            messages.push({role, content});
+        }
     }
 
     // Determine which OpenAI model to use (allow mapping from Anthropic model name)
@@ -422,7 +435,7 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
                             if (tc.id) toolCallAccum[idx].id = tc.id;
                             if (tc.function?.name) toolCallAccum[idx].name = tc.function.name;
 
-                            // If the block hasn't been started yet but now we have complete info, start it
+                            // If the block hasn't been started yet, but now we have complete info, start it
                             if (toolCallAccum[idx].blockIndex === null && toolCallAccum[idx].id && toolCallAccum[idx].name) {
                                 // Close text content block if open
                                 if (contentBlockStarted) {
