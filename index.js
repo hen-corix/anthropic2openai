@@ -189,11 +189,6 @@ function anthropicToOpenAI(body) {
     // Determine which OpenAI model to use (allow mapping from Anthropic model name)
     let mappedModel = MODEL_MAP[body.model];
     const selectedModel = mappedModel || OPENAI_MODEL;
-    if (mappedModel) {
-        console.log(`Using OpenAI model ${selectedModel} (mapped from Anthropic model ${body.model})`);
-    } else {
-        console.log(`Using OpenAI model ${selectedModel} (default)`);
-    }
 
     const openaiReq = {
         model: selectedModel,
@@ -510,6 +505,9 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
 
     sendSSE(res, "message_stop", {type: "message_stop"});
     res.end();
+
+    // Return usage info for logging
+    return {inputTokens, outputTokens};
 }
 
 function sendSSE(res, event, data) {
@@ -519,13 +517,14 @@ function sendSSE(res, event, data) {
 // ---------- main route ----------
 
 app.post("/v1/messages", async (req, res) => {
+    const startTime = Date.now();
     try {
         const anthropicBody = req.body;
-        console.log("--- Incoming Anthropic request ---");
-        console.log(JSON.stringify(anthropicBody, null, 2));
         const openaiBody = anthropicToOpenAI(anthropicBody);
-        console.log("--- Converted OpenAI request ---");
-        console.log(JSON.stringify(openaiBody, null, 2));
+
+        // Determine actual model being used
+        const mappedModel = MODEL_MAP[anthropicBody.model];
+        const actualModel = mappedModel || OPENAI_MODEL;
 
         // Validate API key presence before proceeding
         const apiKey = (process.env.A2O_OPENAI_API_KEY || "").trim();
@@ -567,10 +566,16 @@ app.post("/v1/messages", async (req, res) => {
             res.setHeader("Content-Type", "text/event-stream");
             res.setHeader("Cache-Control", "no-cache");
             res.setHeader("Connection", "keep-alive");
-            await streamOpenAIToAnthropic(openaiRes, res, anthropicBody.model);
+            const usage = await streamOpenAIToAnthropic(openaiRes, res, anthropicBody.model);
+            const duration = Date.now() - startTime;
+            console.log(`${req.method} ${req.path} - streaming - ${duration}ms - model: ${actualModel}, tokens: ${usage.inputTokens}+${usage.outputTokens}`);
         } else {
             const openaiJson = await openaiRes.json();
             const anthropicRes = openAIToAnthropic(openaiJson, anthropicBody.model);
+            const duration = Date.now() - startTime;
+            const promptTokens = openaiJson.usage?.prompt_tokens || 0;
+            const completionTokens = openaiJson.usage?.completion_tokens || 0;
+            console.log(`${req.method} ${req.path} ${JSON.stringify(anthropicRes).length}b - ${duration}ms - model: ${actualModel}, tokens: ${promptTokens}+${completionTokens}`);
             res.json(anthropicRes);
         }
     } catch (err) {
