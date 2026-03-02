@@ -24,6 +24,7 @@ describe('Streaming conversion tests', () => {
   beforeAll(() => {
     // Ensure fetch is mocked
     require('jest-fetch-mock').enableMocks();
+    process.env.A2O_OPENAI_API_KEY = "test"
   });
 
   test('should convert OpenAI SSE stream to Anthropic SSE events', async () => {

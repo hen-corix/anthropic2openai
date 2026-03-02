@@ -3,41 +3,13 @@ const fs = require("fs");
 const https = require("https");
 const crypto = require("crypto");
 
-require('dotenv').config({ quiet: true });
-
 // --- Configuration ---
-// port and ssl configuration will be determined at server start based on environment variables
-const OPENAI_BASE_URL = (
-    process.env.A2O_OPENAI_BASE_URL || "https://api.openai.com/v1"
-).replace(/\/+$/, "");
-let OPENAI_API_KEY; // defined later during server start 
-const OPENAI_MODEL = process.env.A2O_OPENAI_MODEL || "gpt-4o";
-// Optional model mapping: map Anthropic model names to specific OpenAI models via JSON in A2O_MODEL_MAP env var
-// Example: A2O_MODEL_MAP='{"claude-3-5-sonnet-20241022":"gpt-4o-mini"}'
-// Validate and parse model mapping on startup
-const MODEL_MAP = (() => {
-    const raw = process.env.A2O_MODEL_MAP;
-    if (!raw) return {};
-    try {
-        const parsed = JSON.parse(raw);
-        if (typeof parsed !== 'object' || parsed === null) {
-            console.error('A2O_MODEL_MAP must be a JSON object');
-            return {};
-        }
-        // Ensure all values are non-empty strings
-        const invalid = Object.entries(parsed).filter(
-            ([k, v]) => typeof k !== 'string' || typeof v !== 'string' || v.trim() === ''
-        );
-        if (invalid.length) {
-            console.error('A2O_MODEL_MAP contains invalid entries:', invalid);
-            return {};
-        }
-        return parsed;
-    } catch (e) {
-        console.error('Failed to parse A2O_MODEL_MAP JSON', e);
-        return {};
-    }
-})();
+// Environment variables will be reread inside startServer()
+let OPENAI_BASE_URL;
+let OPENAI_API_KEY;
+let OPENAI_MODEL;
+let MODEL_MAP = {};
+readEnvironmentVariables()
 
 const app = express();
 app.use(express.json({limit: "50mb"}));
@@ -555,9 +527,22 @@ app.post("/v1/messages", async (req, res) => {
         console.log("--- Converted OpenAI request ---");
         console.log(JSON.stringify(openaiBody, null, 2));
 
+        // Validate API key presence before proceeding
+        const apiKey = (process.env.A2O_OPENAI_API_KEY || "").trim();
+        if (!apiKey) {
+            console.error("A2O_OPENAI_API_KEY environment variable is required and cannot be empty");
+            return res.status(500).json({
+                type: "error",
+                error: {
+                    type: "api_error",
+                    message: "API key missing",
+                },
+            });
+        }
+
         const headers = {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            Authorization: `Bearer ${apiKey}`,
         };
 
         const openaiRes = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
@@ -634,7 +619,67 @@ module.exports = {
     anthropicToOpenAI,
     openAIToAnthropic,
     startServer,
+    readEnvironmentVariables,
 };
+
+function readEnvironmentVariables() {
+    if (require.main === module) {
+        require('dotenv').config({quiet: true, override: true});
+    }
+
+    // (Re)read environment variables each time the server starts/restarts
+    OPENAI_BASE_URL = (
+        process.env.A2O_OPENAI_BASE_URL || "https://api.openai.com/v1"
+    ).replace(/\/+$/, "");
+    OPENAI_MODEL = process.env.A2O_OPENAI_MODEL || "gpt-4o";
+    // Parse optional model mapping
+    MODEL_MAP = (() => {
+        const raw = process.env.A2O_MODEL_MAP;
+        if (!raw) return {};
+        try {
+            const parsed = JSON.parse(raw);
+            if (typeof parsed !== "object" || parsed === null) {
+                console.error("A2O_MODEL_MAP must be a JSON object");
+                return {};
+            }
+            const invalid = Object.entries(parsed).filter(
+                ([k, v]) => typeof k !== "string" || typeof v !== "string" || v.trim() === ""
+            );
+            if (invalid.length) {
+                console.error("A2O_MODEL_MAP contains invalid entries:", invalid);
+                return {};
+            }
+            return parsed;
+        } catch (e) {
+            console.error("Failed to parse A2O_MODEL_MAP JSON", e);
+            return {};
+        }
+    })();
+
+    // Initialize SSL if configuration is provided
+    let sslOptions = null;
+    const SSL_KEY_PATH = process.env.A2O_SSL_KEY_PATH || "";
+    const SSL_CERT_PATH = process.env.A2O_SSL_CERT_PATH || "";
+
+    if (SSL_KEY_PATH && SSL_CERT_PATH) {
+        try {
+            sslOptions = {
+                key: fs.readFileSync(SSL_KEY_PATH),
+                cert: fs.readFileSync(SSL_CERT_PATH),
+            };
+        } catch (e) {
+            console.error("Failed to load SSL key/cert", e);
+        }
+    }
+
+    // Validate API key configuration
+    OPENAI_API_KEY = (process.env.A2O_OPENAI_API_KEY || "").trim();
+    if (!OPENAI_API_KEY) {
+        console.error("A2O_OPENAI_API_KEY environment variable is required and cannot be empty");
+        // Do not exit; downstream request handling will return a 500 error.
+    }
+    return sslOptions;
+}
 
 /**
  * Starts the proxy server.
@@ -649,28 +694,7 @@ module.exports = {
  * directly (`node index.js`) we simply call it.
  */
 function startServer() {
-    // Initialize SSL if configuration is provided
-    let sslOptions = null;
-    const SSL_KEY_PATH = process.env.A2O_SSL_KEY_PATH || "";
-    const SSL_CERT_PATH = process.env.A2O_SSL_CERT_PATH || "";
-
-    if (SSL_KEY_PATH && SSL_CERT_PATH) {
-        try {
-            sslOptions = {
-                key: fs.readFileSync(SSL_KEY_PATH),
-                cert: fs.readFileSync(SSL_CERT_PATH),
-            };
-        } catch (e) {
-            console.error('Failed to load SSL key/cert', e);
-        }
-    }
-
-    // Validate API key configuration
-    OPENAI_API_KEY = (process.env.A2O_OPENAI_API_KEY || "").trim();
-    if (!OPENAI_API_KEY) {
-        console.error("A2O_OPENAI_API_KEY environment variable is required and cannot be empty");
-        process.exit(1);
-    }
+    let sslOptions = readEnvironmentVariables();
 
     let server;
     const port = parseInt(process.env.A2O_PROXY_PORT || "3456", 10);
@@ -689,5 +713,30 @@ function startServer() {
 }
 
 if (require.main === module) {
-    startServer();
+    // Start the server and set up a Ctrl+R listener to restart it
+    let server = startServer();
+
+    // Function to restart the server
+    const restartServer = () => {
+        console.log("\n[CTRL+R] Restarting server...");
+        // Gracefully close the existing server before starting a new one
+        server.close(() => {
+            server = startServer();
+        });
+    };
+
+    // Enable raw mode to capture key presses
+    if (process.stdin.isTTY) {
+        process.stdin.setRawMode(true);
+        process.stdin.resume();
+        process.stdin.on("data", (chunk) => {
+            // Ctrl+R sends \x12, Ctrl+C sends \x03 (to allow normal exit)
+            if (chunk.length && chunk[0] === 0x12) {
+                restartServer();
+            } else if (chunk.length && chunk[0] === 0x03) {
+                // Exit on Ctrl+C
+                process.exit();
+            }
+        });
+    }
 }

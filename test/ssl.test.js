@@ -2,7 +2,7 @@
 // These tests verify that the server starts in HTTPS mode when valid key/cert files are provided
 // and falls back to HTTP otherwise.
 
-const { startServer } = require('../index');
+const { startServer} = require('../index');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');

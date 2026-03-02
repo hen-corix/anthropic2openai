@@ -9,6 +9,9 @@ A lightweight Node.js proxy that accepts [Anthropic Messages API](https://docs.a
 - Multi-modal content (text + images)
 - Tool use (definitions, tool_use, tool_result round-trips)
 - All common sampling parameters (temperature, top_p, max_tokens, stop_sequences)
+- Runtime API key validation with descriptive error responses
+- Graceful handling of upstream API errors
+- Development mode with hot restart (Ctrl+R) to reload configuration
 
 ## Setup
 
@@ -113,4 +116,23 @@ npm start
 ```
 
 The proxy will now listen on `https://localhost:${A2O_PROXY_PORT}`.
+
+### Development mode (hot restart)
+
+When running the proxy directly (`npm start`), you can restart the server without stopping the process by pressing **Ctrl+R**. This reloads all environment variables and configuration, useful when iterating on settings or code changes.
+
+```
+Server running on http://localhost:3456
+[CTRL+R] Restarting server...
+Server running on http://localhost:3456
+```
+
+### Error handling
+
+The proxy validates API configuration at runtime and returns descriptive error responses:
+
+- **Missing API key**: Returns HTTP 500 with `{"type": "error", "error": {"type": "api_error", "message": "API key missing"}}`
+- **OpenAI API errors**: Returns HTTP 502 with `{"type": "error", "error": {"type": "upstream_error", "message": "..."}}` for network failures or invalid responses
+
+These errors follow the Anthropic API error format, allowing clients to handle them consistently.
 

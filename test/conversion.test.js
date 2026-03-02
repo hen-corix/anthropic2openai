@@ -87,3 +87,127 @@ test("openAIToAnthropic converts tool_calls to tool_use blocks + stop_reason too
   ]);
   expect(out.usage).toEqual({ input_tokens: 10, output_tokens: 5 });
 });
+
+test("anthropicToOpenAI handles system message as array of content blocks", () => {
+  const { anthropicToOpenAI } = require("../index");
+
+  const out = anthropicToOpenAI({
+    model: "claude-anything",
+    system: [{ text: "You are helpful" }, { text: "Be concise" }],
+    messages: [{ role: "user", content: "Hello" }],
+  });
+
+  expect(out.messages[0]).toEqual({ role: "system", content: "You are helpful\nBe concise" });
+});
+
+test("anthropicToOpenAI warns and treats unexpected role as user", () => {
+  const { anthropicToOpenAI } = require("../index");
+  const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
+
+  anthropicToOpenAI({
+    model: "claude-anything",
+    messages: [{ role: "system", content: "test" }],
+  });
+
+  expect(consoleSpy).toHaveBeenCalledWith('Unexpected role "system" in message, treating as "user"');
+  consoleSpy.mockRestore();
+});
+
+test("anthropicToOpenAI converts image with URL source", () => {
+  const { anthropicToOpenAI } = require("../index");
+
+  const out = anthropicToOpenAI({
+    model: "claude-anything",
+    messages: [{
+      role: "user",
+      content: [{ type: "image", source: { type: "url", url: "http://example.com/img.png" } }],
+    }],
+  });
+
+  expect(out.messages[0].content[0]).toEqual({
+    type: "image_url",
+    image_url: { url: "http://example.com/img.png" },
+  });
+});
+
+test("anthropicToOpenAI handles tool result with array content", () => {
+  const { anthropicToOpenAI } = require("../index");
+
+  const out = anthropicToOpenAI({
+    model: "claude-anything",
+    messages: [{
+      role: "user",
+      content: [{
+        type: "tool_result",
+        tool_use_id: "tool_123",
+        content: [{ text: "Result 1" }, { text: "Result 2" }],
+      }],
+    }],
+  });
+
+  expect(out.messages[0].content).toBe("Result 1\nResult 2");
+});
+
+// Map all finish_reason values to stop_reason
+test("mapFinishReason maps all finish_reason values correctly", () => {
+  const { openAIToAnthropic } = require("../index");
+
+  // stop -> end_turn
+  let out = openAIToAnthropic({
+    model: "upstream-model",
+    choices: [{ finish_reason: "stop", message: { content: "Hi" } }],
+    usage: { prompt_tokens: 1, completion_tokens: 1 },
+  }, "claude-model");
+  expect(out.stop_reason).toBe("end_turn");
+
+  // length -> max_tokens
+  out = openAIToAnthropic({
+    model: "upstream-model",
+    choices: [{ finish_reason: "length", message: { content: "Hi" } }],
+    usage: { prompt_tokens: 1, completion_tokens: 1 },
+  }, "claude-model");
+  expect(out.stop_reason).toBe("max_tokens");
+
+  // content_filter -> end_turn
+  out = openAIToAnthropic({
+    model: "upstream-model",
+    choices: [{ finish_reason: "content_filter", message: { content: "Hi" } }],
+    usage: { prompt_tokens: 1, completion_tokens: 1 },
+  }, "claude-model");
+  expect(out.stop_reason).toBe("end_turn");
+
+  // unknown -> end_turn
+  out = openAIToAnthropic({
+    model: "upstream-model",
+    choices: [{ finish_reason: "unknown_reason", message: { content: "Hi" } }],
+    usage: { prompt_tokens: 1, completion_tokens: 1 },
+  }, "claude-model");
+  expect(out.stop_reason).toBe("end_turn");
+});
+
+test("openAIToAnthropic handles tool_calls with invalid JSON arguments gracefully", () => {
+  const { openAIToAnthropic } = require("../index");
+
+  const out = openAIToAnthropic({
+    model: "upstream-model",
+    choices: [{
+      finish_reason: "stop",
+      message: {
+        content: null,
+        tool_calls: [{
+          id: "call_1",
+          type: "function",
+          function: { name: "doThing", arguments: "invalid json" },
+        }],
+      },
+    }],
+    usage: { prompt_tokens: 10, completion_tokens: 5 },
+  }, "claude-model");
+
+  expect(out.content).toEqual([{
+    type: "tool_use",
+    id: "call_1",
+    name: "doThing",
+    input: {},
+  }]);
+});

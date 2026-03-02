@@ -5,6 +5,7 @@ const { anthropicToOpenAI} = require('..');
 describe('anthropicToOpenAI conversion', () => {
   beforeEach(() => {
     fetch.resetMocks();
+    process.env.A2O_OPENAI_API_KEY = "test"
   });
   const supertest = require('supertest');
   require('jest-fetch-mock');
