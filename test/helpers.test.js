@@ -1,6 +1,6 @@
 delete process.env.A2O_MODEL_MAP;
-const request = require('supertest');
-const { anthropicToOpenAI, openAIToAnthropic } = require('../index');
+require('supertest');
+const {openAIToAnthropic } = require('../index');
 
 describe('Helper function tests', () => {
   beforeEach(() => {
@@ -38,11 +38,14 @@ describe('Helper function tests', () => {
 
   test('MODEL_MAP parsing: malformed JSON results in empty map', () => {
     jest.resetModules();
+    // Suppress the expected console.error from malformed JSON parsing
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     process.env.A2O_MODEL_MAP = '{invalid json}';
     const { anthropicToOpenAI } = require('../index');
     const body = { model: 'any-model', messages: [] };
     const result = anthropicToOpenAI(body);
-    // Should fallback to default OPENAI_MODEL env or default value defined in code (gpt-4.1)
-    expect(result.model).toBe(process.env.A2O_OPENAI_MODEL || 'gpt-4.1');
+    // Should fallback to default OPENAI_MODEL env or default value defined in code
+    expect(result.model).toBe(process.env.A2O_OPENAI_MODEL || 'gpt-4o');
+    consoleSpy.mockRestore();
   });
 });

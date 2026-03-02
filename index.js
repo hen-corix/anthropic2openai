@@ -3,7 +3,7 @@ const fs = require("fs");
 const https = require("https");
 const crypto = require("crypto");
 
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 // --- Configuration ---
 // port and ssl configuration will be determined at server start based on environment variables
@@ -347,16 +347,16 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
                 const choice = chunk.choices?.[0];
                 const delta = choice?.delta;
 
-                if (!delta && chunk.usage) {
-                    // final chunk with usage only
+                // Capture usage from any chunk that has it
+                if (chunk.usage) {
                     inputTokens = chunk.usage.prompt_tokens || 0;
                     outputTokens = chunk.usage.completion_tokens || 0;
-                    continue;
                 }
-                if (!delta) continue;
+
+                if (!delta && !choice?.finish_reason) continue;
 
                 // --- Text content ---
-                if (delta.content) {
+                if (delta && delta.content) {
                     if (!contentBlockStarted) {
                         sendSSE(res, "content_block_start", {
                             type: "content_block_start",
@@ -373,44 +373,96 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
                 }
 
                 // --- Tool calls ---
-                if (delta.tool_calls) {
+                if (delta && delta.tool_calls) {
                     for (const tc of delta.tool_calls) {
                         const idx = tc.index ?? 0;
                         if (!toolCallAccum[idx]) {
-                            // Close text content block if open
-                            if (contentBlockStarted) {
-                                sendSSE(res, "content_block_stop", {
-                                    type: "content_block_stop",
+                            // Only start the block if we have the required id and name
+                            if (tc.id && tc.function?.name) {
+                                // Close text content block if open
+                                if (contentBlockStarted) {
+                                    sendSSE(res, "content_block_stop", {
+                                        type: "content_block_stop",
+                                        index: blockIndex,
+                                    });
+                                    blockIndex++;
+                                    contentBlockStarted = false;
+                                }
+
+                                toolCallAccum[idx] = {
+                                    id: tc.id,
+                                    name: tc.function.name,
+                                    argsJson: "",
+                                    blockIndex: blockIndex,
+                                };
+
+                                sendSSE(res, "content_block_start", {
+                                    type: "content_block_start",
                                     index: blockIndex,
+                                    content_block: {
+                                        type: "tool_use",
+                                        id: tc.id,
+                                        name: tc.function.name,
+                                        input: {},
+                                    },
                                 });
                                 blockIndex++;
-                                contentBlockStarted = false;
                             }
+                            // If we don't have complete info yet, accumulate partial data
+                            else {
+                                toolCallAccum[idx] = {
+                                    id: tc.id || null,
+                                    name: tc.function?.name || "",
+                                    argsJson: tc.function?.arguments || "",
+                                    blockIndex: null, // Will be set when block starts
+                                };
+                            }
+                        } else {
+                            // Update accumulated data
+                            if (tc.id) toolCallAccum[idx].id = tc.id;
+                            if (tc.function?.name) toolCallAccum[idx].name = tc.function.name;
 
-                            toolCallAccum[idx] = {
-                                id: tc.id || genId("toolu"),
-                                name: tc.function?.name || "",
-                                argsJson: "",
-                                blockIndex: blockIndex,
-                            };
+                            // If the block hasn't been started yet but now we have complete info, start it
+                            if (toolCallAccum[idx].blockIndex === null && toolCallAccum[idx].id && toolCallAccum[idx].name) {
+                                // Close text content block if open
+                                if (contentBlockStarted) {
+                                    sendSSE(res, "content_block_stop", {
+                                        type: "content_block_stop",
+                                        index: blockIndex,
+                                    });
+                                    blockIndex++;
+                                    contentBlockStarted = false;
+                                }
 
-                            sendSSE(res, "content_block_start", {
-                                type: "content_block_start",
-                                index: blockIndex,
-                                content_block: {
-                                    type: "tool_use",
-                                    id: toolCallAccum[idx].id,
-                                    name: toolCallAccum[idx].name,
-                                    input: {},
-                                },
-                            });
-                            blockIndex++;
+                                toolCallAccum[idx].blockIndex = blockIndex;
+
+                                sendSSE(res, "content_block_start", {
+                                    type: "content_block_start",
+                                    index: blockIndex,
+                                    content_block: {
+                                        type: "tool_use",
+                                        id: toolCallAccum[idx].id,
+                                        name: toolCallAccum[idx].name,
+                                        input: {},
+                                    },
+                                });
+                                // Flush any buffered arguments
+                                const bufferedArgs = toolCallAccum[idx].argsJson;
+                                if (bufferedArgs) {
+                                    sendSSE(res, "content_block_delta", {
+                                        type: "content_block_delta",
+                                        index: blockIndex,
+                                        delta: {
+                                            type: "input_json_delta",
+                                            partial_json: bufferedArgs,
+                                        },
+                                    });
+                                }
+                                blockIndex++;
+                            }
                         }
 
-                        if (tc.function?.name) {
-                            toolCallAccum[idx].name = tc.function.name;
-                        }
-                        if (tc.function?.arguments) {
+                        if (tc.function?.arguments && toolCallAccum[idx].blockIndex !== null) {
                             toolCallAccum[idx].argsJson += tc.function.arguments;
                             sendSSE(res, "content_block_delta", {
                                 type: "content_block_delta",
@@ -456,7 +508,7 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
     sendSSE(res, "message_delta", {
         type: "message_delta",
         delta: {stop_reason: stopReason, stop_sequence: null},
-        usage: {output_tokens: outputTokens},
+        usage: {input_tokens: inputTokens, output_tokens: outputTokens},
     });
 
     sendSSE(res, "message_stop", {type: "message_stop"});

@@ -56,4 +56,32 @@ describe('Streaming conversion tests', () => {
     expect(text).toMatch(/"text":"Hello"/);
     expect(text).toMatch(/"text":" world"/);
   });
+
+  test('should include input_tokens and output_tokens in message_delta usage', async () => {
+    const sseChunks = [
+      'data: {"choices":[{"delta":{"content":"Hello"}}]}' + '\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}' + '\n\n',
+      'data: [DONE]' + '\n\n',
+    ];
+    global.fetch.mockResolvedValue({
+      ok: true,
+      body: createMockStream(sseChunks),
+    });
+
+    const response = await request(app)
+      .post('/v1/messages')
+      .send({ model: 'gpt-4.1', messages: [], stream: true })
+      .expect('Content-Type', /text\/event-stream/)
+      .expect(200);
+
+    const text = response.text;
+    // Extract the message_delta event data (handle nested objects)
+    const messageDeltaMatch = text.match(/event: message_delta\ndata: ({[\s\S]*?})\n\n/);
+    expect(messageDeltaMatch).toBeTruthy();
+
+    const messageDelta = JSON.parse(messageDeltaMatch[1]);
+    expect(messageDelta.usage).toBeDefined();
+    expect(messageDelta.usage.input_tokens).toBe(10);
+    expect(messageDelta.usage.output_tokens).toBe(5);
+  });
 });
