@@ -739,6 +739,9 @@ function readEnvironmentVariables() {
  */
 function startServer() {
     let sslOptions = readEnvironmentVariables();
+    if (!sslOptions) {
+        console.warn("SSL configuration missing or invalid – falling back to HTTP");
+    }
 
     // Validate and parse port number
     const defaultPort = 3456;
@@ -776,7 +779,10 @@ if (require.main === module) {
     const restartServer = () => {
         console.log("\n[CTRL+R] Restarting server...");
         // Gracefully close the existing server before starting a new one
-        server.close(() => {
+        server.close((err) => {
+            if (err) {
+                console.error('Error closing server:', err);
+            }
             server = startServer();
         });
     };

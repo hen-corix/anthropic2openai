@@ -97,6 +97,8 @@ The proxy can serve HTTPS when you provide a TLS private key and certificate.
 
 If both variables are set and the files can be read, the server starts with HTTPS on the port defined by `A2O_PROXY_PORT`. Otherwise it falls back to plain HTTP.
 
+The server now logs a warning `SSL configuration missing or invalid – falling back to HTTP` when the SSL files are missing or unreadable.
+
 **Generating a self‑signed certificate**
 
 ```bash
