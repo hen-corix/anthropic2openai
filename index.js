@@ -529,6 +529,7 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
 }
 
 function sendSSE(res, event, data) {
+    console.debug(`[SSE] event: ${event}`, JSON.stringify(data));
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
@@ -536,6 +537,7 @@ function sendSSE(res, event, data) {
 
 app.post("/v1/messages", async (req, res) => {
     const startTime = Date.now();
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - Body size: ${Buffer.byteLength(JSON.stringify(req.body), 'utf8')} bytes`);
     try {
         const anthropicBody = req.body;
         const openaiBody = anthropicToOpenAI(anthropicBody);
