@@ -537,7 +537,9 @@ function sendSSE(res, event, data) {
 
 app.post("/v1/messages", async (req, res) => {
     const startTime = Date.now();
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - Body size: ${Buffer.byteLength(JSON.stringify(req.body), 'utf8')} bytes`);
+    const messagesContent = (req.body.messages || []).filter(m => m.role === 'assistant').map(m => m.content || '').map(c => JSON.stringify(c) || '').join(' ').substring(0, 100);
+    let bodyLength = Buffer.byteLength(JSON.stringify(req.body), 'utf8');
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${bodyLength}b - content: "${messagesContent}${messagesContent.length >= 100 ? '...' : ''}"`);
     try {
         const anthropicBody = req.body;
         const openaiBody = anthropicToOpenAI(anthropicBody);
