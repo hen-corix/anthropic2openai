@@ -79,6 +79,12 @@ message = client.messages.create(
 print(message.content[0].text)
 ```
 
+### Claude Code
+
+```bash
+ANTHROPIC_AUTH_TOKEN="empty"; ANTHROPIC_BASE_URL="http://localhost:3456"; claude
+```
+
 ## Endpoints
 
 | Method | Path | Description |
