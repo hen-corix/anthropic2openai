@@ -199,8 +199,12 @@ function anthropicToOpenAI(body) {
     if (body.max_tokens != null) openaiReq.max_tokens = body.max_tokens;
     if (body.temperature != null) openaiReq.temperature = body.temperature;
     if (body.top_p != null) openaiReq.top_p = body.top_p;
-    if (body.stop_sequences)
-        openaiReq.stop = body.stop_sequences;
+    if (body.stop_sequences) {
+        if (body.stop_sequences.length > 4) {
+            console.warn(`stop_sequences has ${body.stop_sequences.length} items, truncating to 4 (OpenAI limit)`);
+        }
+        openaiReq.stop = body.stop_sequences.slice(0, 4);
+    }
 
     // Tool definitions
     if (body.tools && body.tools.length > 0) {
@@ -240,6 +244,7 @@ function openAIToAnthropic(openaiRes, requestModel) {
             try {
                 args = JSON.parse(tc.function.arguments);
             } catch {
+                console.warn("Failed to parse tool call arguments, using empty object:", tc.function.arguments);
                 args = {};
             }
             content.push({

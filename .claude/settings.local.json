@@ -8,5 +8,6 @@
       "Bash(git push:*)",
       "Bash(npx jest:*)"
     ]
-  }
+  },
+  "spinnerTipsEnabled": false
 }
