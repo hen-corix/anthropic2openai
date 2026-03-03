@@ -131,7 +131,7 @@ Server running on http://localhost:3456
 
 The proxy validates API configuration at runtime and returns descriptive error responses:
 
-- **Missing API key**: Returns HTTP 500 with `{"type": "error", "error": {"type": "api_error", "message": "API key missing"}}`
+- **Missing API key**: Returns HTTP 401 with `{"type": "error", "error": {"type": "authentication_error", "message": "API key missing"}}`
 - **OpenAI API errors**: Returns HTTP 502 with `{"type": "error", "error": {"type": "upstream_error", "message": "..."}}` for network failures or invalid responses
 
 These errors follow the Anthropic API error format, allowing clients to handle them consistently.

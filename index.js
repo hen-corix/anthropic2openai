@@ -476,6 +476,17 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
         }
     } catch (err) {
         console.error("Stream reading error:", err);
+        // Send error event to client before ending stream
+        sendMessageStart();
+        sendSSE(res, "error", {
+            type: "error",
+            error: {
+                type: "upstream_error",
+                message: "Stream interrupted: " + (err.message || "Unknown error"),
+            },
+        });
+        res.end();
+        return {inputTokens, outputTokens};
     }
 
     // Close any open content block
@@ -485,12 +496,14 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
             index: blockIndex,
         });
     }
-    // Close tool call blocks
+    // Close tool call blocks (only those that were properly started)
     for (const tc of Object.values(toolCallAccum)) {
-        sendSSE(res, "content_block_stop", {
-            type: "content_block_stop",
-            index: tc.blockIndex,
-        });
+        if (tc.blockIndex !== null) {
+            sendSSE(res, "content_block_stop", {
+                type: "content_block_stop",
+                index: tc.blockIndex,
+            });
+        }
     }
 
     // Ensure message_start was sent (edge case: empty stream)
@@ -530,10 +543,10 @@ app.post("/v1/messages", async (req, res) => {
         const apiKey = (process.env.A2O_OPENAI_API_KEY || "").trim();
         if (!apiKey) {
             console.error("A2O_OPENAI_API_KEY environment variable is required and cannot be empty");
-            return res.status(500).json({
+            return res.status(401).json({
                 type: "error",
                 error: {
-                    type: "api_error",
+                    type: "authentication_error",
                     message: "API key missing",
                 },
             });
@@ -556,7 +569,7 @@ app.post("/v1/messages", async (req, res) => {
             return res.status(openaiRes.status).json({
                 type: "error",
                 error: {
-                    type: "api_error",
+                    type: "upstream_error",
                     message: `Upstream error: ${errText}`,
                 },
             });
@@ -580,7 +593,18 @@ app.post("/v1/messages", async (req, res) => {
         }
     } catch (err) {
         // Provide more specific error responses based on error type
-        if (err.name === 'FetchError' || err instanceof TypeError) {
+        const isNetworkError = err.name === 'FetchError' ||
+            (err instanceof TypeError && (
+                err.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+                err.code === 'UND_ERR_SOCKET' ||
+                err.code === 'ECONNREFUSED' ||
+                err.code === 'ENOTFOUND' ||
+                err.code === 'ETIMEDOUT' ||
+                err.message?.includes('fetch') ||
+                err.message?.includes('network')
+            ));
+
+        if (isNetworkError) {
             // Network or fetch-related error
             console.error("Network error while contacting OpenAI:", err);
             res.status(502).json({
@@ -588,6 +612,16 @@ app.post("/v1/messages", async (req, res) => {
                 error: {
                     type: "upstream_error",
                     message: "Failed to reach OpenAI API. Check network connectivity and API key.",
+                },
+            });
+        } else if (err instanceof TypeError) {
+            // Likely a programming error, not a network issue
+            console.error("Unexpected TypeError (possible bug):", err);
+            res.status(500).json({
+                type: "error",
+                error: {
+                    type: "api_error",
+                    message: "Internal proxy error.",
                 },
             });
         } else if (err.name === 'SyntaxError') {
@@ -701,8 +735,20 @@ function readEnvironmentVariables() {
 function startServer() {
     let sslOptions = readEnvironmentVariables();
 
+    // Validate and parse port number
+    const defaultPort = 3456;
+    let port = defaultPort;
+    const portEnv = process.env.A2O_PROXY_PORT;
+    if (portEnv) {
+        const parsed = parseInt(portEnv, 10);
+        if (isNaN(parsed) || parsed < 1 || parsed > 65535) {
+            console.error(`Invalid A2O_PROXY_PORT "${portEnv}", must be a number between 1 and 65535. Using default ${defaultPort}.`);
+        } else {
+            port = parsed;
+        }
+    }
+
     let server;
-    const port = parseInt(process.env.A2O_PROXY_PORT || "3456", 10);
     if (sslOptions) {
         server = https.createServer(sslOptions, app).listen(port, () => {
             console.log(`anthropic2openai proxy listening on https://localhost:${port}`);
