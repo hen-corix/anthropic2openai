@@ -39,7 +39,7 @@ test("POST /v1/messages proxies non-streaming and returns Anthropic-shaped respo
   expect(res.body.usage).toEqual({ input_tokens: 3, output_tokens: 2 });
 });
 
-test("POST /v1/messages returns 500 when API key missing", async () => {
+test("POST /v1/messages returns 401 when API key missing", async () => {
   process.env.A2O_OPENAI_API_KEY = "";
   jest.resetModules();
   const { app } = require("../index");
@@ -48,7 +48,7 @@ test("POST /v1/messages returns 500 when API key missing", async () => {
     .post("/v1/messages")
     .send({ model: "claude-xyz", messages: [{ role: "user", content: "Hello" }] });
 
-  expect(res.status).toBe(500);
+  expect(res.status).toBe(401);
   expect(res.body.type).toBe("error");
-  expect(res.body.error.type).toBe("api_error");
+  expect(res.body.error.type).toBe("authentication_error");
 });

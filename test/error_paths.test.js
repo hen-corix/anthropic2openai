@@ -24,7 +24,7 @@ describe('Error path tests', () => {
       .expect(401);
     expect(res.body).toMatchObject({
       type: 'error',
-      error: { type: 'api_error', message: expect.stringContaining('Upstream error') },
+      error: { type: 'upstream_error', message: expect.stringContaining('Upstream error') },
     });
   });
 
