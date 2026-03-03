@@ -1,4 +1,8 @@
 node_modules/
 .env
 coverage/
+reports/
 .idea/
+
+# stryker temp files
+.stryker-tmp
