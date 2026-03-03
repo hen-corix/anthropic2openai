@@ -67,4 +67,44 @@ describe('Error path tests', () => {
       error: { type: 'upstream_error', message: expect.stringContaining('Failed to reach') },
     });
   });
+
+  test('Generic server error results in 500 response', async () => {
+    global.fetch.mockRejectedValue(new Error('Something unexpected happened'));
+    const res = await request(app)
+      .post('/v1/messages')
+      .send({ model: 'gpt-4.1', messages: [] })
+      .expect(500);
+    expect(res.body).toMatchObject({
+      type: 'error',
+      error: { type: 'api_error', message: 'Something unexpected happened' },
+    });
+  });
+
+  test('TypeError with network-related code results in 502 response', async () => {
+    const err = new TypeError('Connection failed');
+    err.code = 'ECONNREFUSED';
+    global.fetch.mockRejectedValue(err);
+    const res = await request(app)
+      .post('/v1/messages')
+      .send({ model: 'gpt-4.1', messages: [] })
+      .expect(502);
+    expect(res.body).toMatchObject({
+      type: 'error',
+      error: { type: 'upstream_error', message: expect.stringContaining('Failed to reach') },
+    });
+  });
+
+  test('SyntaxError (JSON parsing error) results in 502 response', async () => {
+    const err = new SyntaxError('Unexpected token');
+    err.name = 'SyntaxError';
+    global.fetch.mockRejectedValue(err);
+    const res = await request(app)
+      .post('/v1/messages')
+      .send({ model: 'gpt-4.1', messages: [] })
+      .expect(502);
+    expect(res.body).toMatchObject({
+      type: 'error',
+      error: { type: 'upstream_error', message: 'Invalid response from OpenAI API.' },
+    });
+  });
 });

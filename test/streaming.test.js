@@ -27,6 +27,10 @@ describe('Streaming conversion tests', () => {
     process.env.A2O_OPENAI_API_KEY = "test"
   });
 
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   test('should convert OpenAI SSE stream to Anthropic SSE events', async () => {
     // Mock fetch to return a streaming response
     const sseChunks = [
@@ -84,5 +88,87 @@ describe('Streaming conversion tests', () => {
     expect(messageDelta.usage).toBeDefined();
     expect(messageDelta.usage.input_tokens).toBe(10);
     expect(messageDelta.usage.output_tokens).toBe(5);
+  });
+
+  test('should handle stream reading error gracefully', async () => {
+    const errorStream = {
+      getReader() {
+        return {
+          async read() {
+            throw new Error('Stream broken');
+          },
+        };
+      },
+    };
+
+    global.fetch.mockResolvedValue({
+      ok: true,
+      body: errorStream,
+    });
+
+    const response = await request(app)
+      .post('/v1/messages')
+      .send({ model: 'gpt-4.1', messages: [], stream: true })
+      .expect('Content-Type', /text\/event-stream/)
+      .expect(200);
+
+    const text = response.text;
+    // Should have error event
+    expect(text).toContain('event: error');
+    expect(text).toContain('upstream_error');
+    expect(text).toContain('Stream interrupted');
+  });
+
+  test('should handle empty stream (edge case)', async () => {
+    const emptyStream = {
+      getReader() {
+        return {
+          async read() {
+            return { done: true };
+          },
+        };
+      },
+    };
+
+    global.fetch.mockResolvedValue({
+      ok: true,
+      body: emptyStream,
+    });
+
+    const response = await request(app)
+      .post('/v1/messages')
+      .send({ model: 'gpt-4.1', messages: [], stream: true })
+      .expect('Content-Type', /text\/event-stream/)
+      .expect(200);
+
+    const text = response.text;
+    // Should still have message_start and message_stop even for empty stream
+    expect(text).toContain('event: message_start');
+    expect(text).toContain('event: message_stop');
+    expect(text).toContain('event: message_delta');
+  });
+
+  test('should skip invalid JSON in SSE data', async () => {
+    const sseChunks = [
+      'data: {"choices":[{"delta":{"content":"Hello"}}]}' + '\n\n',
+      'data: invalid json here' + '\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}' + '\n\n',
+      'data: [DONE]' + '\n\n',
+    ];
+    global.fetch.mockResolvedValue({
+      ok: true,
+      body: createMockStream(sseChunks),
+    });
+
+    const response = await request(app)
+      .post('/v1/messages')
+      .send({ model: 'gpt-4.1', messages: [], stream: true })
+      .expect('Content-Type', /text\/event-stream/)
+      .expect(200);
+
+    const text = response.text;
+    // Should still process valid chunks
+    expect(text).toContain('event: message_start');
+    expect(text).toContain('Hello');
   });
 });

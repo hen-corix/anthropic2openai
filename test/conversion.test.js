@@ -211,3 +211,69 @@ test("openAIToAnthropic handles tool_calls with invalid JSON arguments gracefull
     input: {},
   }]);
 });
+
+test("anthropicToOpenAI handles unknown message content type as null", () => {
+  const { anthropicToOpenAI } = require("../index");
+
+  const out = anthropicToOpenAI({
+    model: "claude-anything",
+    messages: [{ role: "user", content: { foo: "bar" } }],
+  });
+
+  // Message with null/empty content should be filtered out
+  expect(out.messages.filter(m => m.role === "user")).toHaveLength(0);
+});
+
+test("anthropicToOpenAI warns when stop_sequences exceeds 4 items", () => {
+  const { anthropicToOpenAI } = require("../index");
+  const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
+
+  const out = anthropicToOpenAI({
+    model: "claude-anything",
+    messages: [{ role: "user", content: "Hello" }],
+    stop_sequences: ["stop1", "stop2", "stop3", "stop4", "stop5"],
+  });
+
+  expect(consoleSpy).toHaveBeenCalledWith("stop_sequences has 5 items, truncating to 4 (OpenAI limit)");
+  expect(out.stop).toEqual(["stop1", "stop2", "stop3", "stop4"]);
+  consoleSpy.mockRestore();
+});
+
+test("anthropicToOpenAI maps tools to OpenAI format", () => {
+  const { anthropicToOpenAI } = require("../index");
+
+  const out = anthropicToOpenAI({
+    model: "claude-anything",
+    messages: [{ role: "user", content: "Hello" }],
+    tools: [
+      {
+        name: "get_weather",
+        description: "Get weather for a city",
+        input_schema: { type: "object", properties: { city: { type: "string" } } },
+      },
+    ],
+  });
+
+  expect(out.tools).toEqual([
+    {
+      type: "function",
+      function: {
+        name: "get_weather",
+        description: "Get weather for a city",
+        parameters: { type: "object", properties: { city: { type: "string" } } },
+      },
+    },
+  ]);
+});
+
+test("anthropicToOpenAI handles empty tools array", () => {
+  const { anthropicToOpenAI } = require("../index");
+
+  const out = anthropicToOpenAI({
+    model: "claude-anything",
+    messages: [{ role: "user", content: "Hello" }],
+    tools: [],
+  });
+
+  expect(out.tools).toBeUndefined();
+});
