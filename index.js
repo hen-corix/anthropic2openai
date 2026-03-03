@@ -581,14 +581,14 @@ app.post("/v1/messages", async (req, res) => {
             res.setHeader("Connection", "keep-alive");
             const usage = await streamOpenAIToAnthropic(openaiRes, res, anthropicBody.model);
             const duration = Date.now() - startTime;
-            console.log(`${req.method} ${req.path} - streaming - ${duration}ms - model: ${actualModel}, tokens: ${usage.inputTokens}+${usage.outputTokens}`);
+            console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - streaming - ${duration}ms - model: ${actualModel}, tokens: ${usage.inputTokens}+${usage.outputTokens}`);
         } else {
             const openaiJson = await openaiRes.json();
             const anthropicRes = openAIToAnthropic(openaiJson, anthropicBody.model);
             const duration = Date.now() - startTime;
             const promptTokens = openaiJson.usage?.prompt_tokens || 0;
             const completionTokens = openaiJson.usage?.completion_tokens || 0;
-            console.log(`${req.method} ${req.path} ${JSON.stringify(anthropicRes).length}b - ${duration}ms - model: ${actualModel}, tokens: ${promptTokens}+${completionTokens}`);
+            console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} ${JSON.stringify(anthropicRes).length}b - ${duration}ms - model: ${actualModel}, tokens: ${promptTokens}+${completionTokens}`);
             res.json(anthropicRes);
         }
     } catch (err) {
