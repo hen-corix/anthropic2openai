@@ -32,6 +32,7 @@ All settings are configured via environment variables:
 | `A2O_PROXY_PORT` | No | `3456` | Local TCP port the proxy listens on |
 | `A2O_SSL_KEY_PATH` | No | `""` | Filesystem path to TLS private key (PEM) |
 | `A2O_SSL_CERT_PATH` | No | `""` | Filesystem path to TLS certificate (PEM) |
+| `A2O_LOG_FILE` | No | `messages.log` | Path to log message conversations (JSON Lines format) |
 
 Copy `.env.example` to `.env` and fill in your values, or export them directly.
 
@@ -124,6 +125,20 @@ npm start
 ```
 
 The proxy will now listen on `https://localhost:${A2O_PROXY_PORT}`.
+
+### Message logging
+
+Set `A2O_LOG_FILE` to enable conversation logging. Each request/response pair is appended as a single JSON line with timestamp, messages, and response.
+
+```bash
+export A2O_LOG_FILE="messages.log"
+npm start
+```
+
+Log entry format (JSON Lines):
+```json
+{"ts": "2024-01-15T10:30:00.000Z", "messages": [{"role": "user", "content": "Hello"}], "response": "Hi there!"}
+```
 
 ### Development mode (hot restart)
 

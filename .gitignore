@@ -3,6 +3,7 @@ node_modules/
 coverage/
 reports/
 .idea/
+messages.log
 
 # stryker temp files
 .stryker-tmp

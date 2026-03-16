@@ -9,12 +9,42 @@ let OPENAI_BASE_URL;
 let OPENAI_API_KEY;
 let OPENAI_MODEL;
 let MODEL_MAP = {};
+let LOG_FILE;
 readEnvironmentVariables()
 
 const app = express();
 app.use(express.json({limit: "50mb"}));
 
 // ---------- helpers ----------
+
+/** Extract plain text string from Anthropic message content (string or block array) */
+function extractTextContent(content) {
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+        return content.filter(b => b.type === "text").map(b => b.text || "").join("\n");
+    }
+    return "";
+}
+
+/**
+ * Append a conversation entry to the log file as a single JSON line.
+ * Each entry contains only message roles/content and the assistant response — no metadata.
+ */
+function logMessages(requestBody, responseText) {
+    if (!LOG_FILE) return;
+    const messages = [];
+    if (requestBody.system) {
+        messages.push({role: "system", content: extractTextContent(requestBody.system)});
+    }
+    for (const m of requestBody.messages || []) {
+        messages.push({role: m.role, content: extractTextContent(m.content)});
+    }
+    const entry = {ts: new Date().toISOString(), messages};
+    if (responseText !== undefined) entry.response = responseText;
+    fs.appendFile(LOG_FILE, JSON.stringify(entry) + "\n", err => {
+        if (err) console.error("Failed to write message log:", err);
+    });
+}
 
 function genId(prefix = "msg") {
     // Generate a 24‑character hex identifier (12 bytes → 24 hex chars)
@@ -290,6 +320,7 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
     let inputTokens = 0;
     let outputTokens = 0;
     let messageStartSent = false;
+    let responseText = "";
 
     const reader = openaiResponse.body.getReader();
     const decoder = new TextDecoder();
@@ -351,6 +382,7 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
 
                 // --- Text content ---
                 if (delta && delta.content) {
+                    responseText += delta.content;
                     if (!contentBlockStarted) {
                         sendSSE(res, "content_block_start", {
                             type: "content_block_start",
@@ -491,7 +523,7 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
             },
         });
         res.end();
-        return {inputTokens, outputTokens};
+        return {inputTokens, outputTokens, responseText};
     }
 
     // Close any open content block
@@ -524,8 +556,8 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
     sendSSE(res, "message_stop", {type: "message_stop"});
     res.end();
 
-    // Return usage info for logging
-    return {inputTokens, outputTokens};
+    // Return usage info and accumulated text for logging
+    return {inputTokens, outputTokens, responseText};
 }
 
 function sendSSE(res, event, data) {
@@ -589,11 +621,14 @@ app.post("/v1/messages", async (req, res) => {
             res.setHeader("Cache-Control", "no-cache");
             res.setHeader("Connection", "keep-alive");
             const usage = await streamOpenAIToAnthropic(openaiRes, res, anthropicBody.model);
+            logMessages(anthropicBody, usage.responseText);
             const duration = Date.now() - startTime;
             console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - streaming - ${duration}ms - model: ${actualModel}, tokens: ${usage.inputTokens}+${usage.outputTokens}`);
         } else {
             const openaiJson = await openaiRes.json();
             const anthropicRes = openAIToAnthropic(openaiJson, anthropicBody.model);
+            const responseText = anthropicRes.content.filter(b => b.type === "text").map(b => b.text).join("\n");
+            logMessages(anthropicBody, responseText);
             const duration = Date.now() - startTime;
             const promptTokens = openaiJson.usage?.prompt_tokens || 0;
             const completionTokens = openaiJson.usage?.completion_tokens || 0;
@@ -676,6 +711,7 @@ function readEnvironmentVariables() {
     }
 
     // (Re)read environment variables each time the server starts/restarts
+    LOG_FILE = process.env.A2O_LOG_FILE || "messages.log";
     OPENAI_BASE_URL = (
         process.env.A2O_OPENAI_BASE_URL || "https://api.openai.com/v1"
     ).replace(/\/+$/, "");
