@@ -1,4 +1,8 @@
 const request = require('supertest');
+// Must be set before requiring index.js: the API key is captured into a
+// module-level variable at load time and no longer re-read from process.env
+// per request.
+process.env.A2O_OPENAI_API_KEY = "test";
 const { app } = require('../index');
 
 // Helper to create a mock ReadableStream compatible with fetch response
@@ -24,7 +28,6 @@ describe('Streaming conversion tests', () => {
   beforeAll(() => {
     // Ensure fetch is mocked
     require('jest-fetch-mock').enableMocks();
-    process.env.A2O_OPENAI_API_KEY = "test"
   });
 
   beforeEach(() => {

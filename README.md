@@ -7,8 +7,9 @@ A lightweight Node.js proxy that accepts [Anthropic Messages API](https://docs.a
 - Non-streaming and streaming (SSE) support
 - System prompts (string and array form)
 - Multi-modal content (text + images)
-- Tool use (definitions, tool_use, tool_result round-trips)
+- Tool use (definitions, tool_use, tool_result round-trips, tool_choice — forwarded only when `tools` are also present)
 - All common sampling parameters (temperature, top_p, max_tokens, stop_sequences)
+- `top_k` is accepted but not forwarded (no OpenAI equivalent); a warning is logged when it is set
 - Runtime API key validation with descriptive error responses
 - Graceful handling of upstream API errors
 - Development mode with hot restart (Ctrl+R) to reload configuration
@@ -32,7 +33,7 @@ All settings are configured via environment variables:
 | `A2O_PROXY_PORT` | No | `3456` | Local TCP port the proxy listens on |
 | `A2O_SSL_KEY_PATH` | No | `""` | Filesystem path to TLS private key (PEM) |
 | `A2O_SSL_CERT_PATH` | No | `""` | Filesystem path to TLS certificate (PEM) |
-| `A2O_LOG_FILE` | No | `messages.log` | Path to log message conversations (JSON Lines format) |
+| `A2O_LOG_FILE` | No | — (logging disabled) | Path to log message conversations (JSON Lines format); logging is opt-in |
 
 Copy `.env.example` to `.env` and fill in your values, or export them directly.
 
@@ -142,13 +143,15 @@ Log entry format (JSON Lines):
 
 ### Development mode (hot restart)
 
-When running the proxy directly (`npm start`), you can restart the server without stopping the process by pressing **Ctrl+R**. This reloads all environment variables and configuration, useful when iterating on settings or code changes.
+When running the proxy directly (`npm start`), you can restart the server without stopping the process by pressing **Ctrl+R**. This re-reads `process.env` and reapplies configuration (model, model map, SSL, log file, etc.).
 
 ```
 Server running on http://localhost:3456
 [CTRL+R] Restarting server...
 Server running on http://localhost:3456
 ```
+
+**Note:** Ctrl+R does **not** reload `.env` files — those are only loaded once at process startup. To pick up `.env` changes, restart the `npm start` process itself, or `export` the changed variables in the shell before pressing Ctrl+R.
 
 ### Error handling
 

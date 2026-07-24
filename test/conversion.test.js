@@ -277,3 +277,69 @@ test("anthropicToOpenAI handles empty tools array", () => {
 
   expect(out.tools).toBeUndefined();
 });
+
+test("anthropicToOpenAI warns when top_k is set (not forwarded)", () => {
+  const { anthropicToOpenAI } = require("../index");
+  const consoleSpy = jest.spyOn(console, "warn").mockImplementation();
+
+  const out = anthropicToOpenAI({
+    model: "claude-anything",
+    messages: [{ role: "user", content: "Hello" }],
+    top_k: 40,
+  });
+
+  expect(consoleSpy).toHaveBeenCalledWith(
+    "top_k is not supported by the OpenAI Chat Completions API and will not be forwarded"
+  );
+  expect(out.top_k).toBeUndefined();
+  consoleSpy.mockRestore();
+});
+
+describe("anthropicToOpenAI tool_choice mapping", () => {
+  const { anthropicToOpenAI } = require("../index");
+  const baseBody = {
+    model: "claude-anything",
+    messages: [{ role: "user", content: "Hello" }],
+    tools: [
+      { name: "get_weather", description: "Get weather", input_schema: { type: "object" } },
+    ],
+  };
+
+  test('maps {type: "auto"} to "auto"', () => {
+    const out = anthropicToOpenAI({ ...baseBody, tool_choice: { type: "auto" } });
+    expect(out.tool_choice).toBe("auto");
+  });
+
+  test('maps {type: "any"} to "required"', () => {
+    const out = anthropicToOpenAI({ ...baseBody, tool_choice: { type: "any" } });
+    expect(out.tool_choice).toBe("required");
+  });
+
+  test('maps {type: "tool", name} to a function tool_choice', () => {
+    const out = anthropicToOpenAI({
+      ...baseBody,
+      tool_choice: { type: "tool", name: "get_weather" },
+    });
+    expect(out.tool_choice).toEqual({ type: "function", function: { name: "get_weather" } });
+  });
+
+  test('maps {type: "none"} to "none"', () => {
+    const out = anthropicToOpenAI({ ...baseBody, tool_choice: { type: "none" } });
+    expect(out.tool_choice).toBe("none");
+  });
+
+  test("leaves tool_choice unset when not provided", () => {
+    const out = anthropicToOpenAI(baseBody);
+    expect(out.tool_choice).toBeUndefined();
+  });
+
+  test("drops tool_choice when no tools are defined (OpenAI rejects tool_choice without tools)", () => {
+    const out = anthropicToOpenAI({
+      model: "claude-anything",
+      messages: [{ role: "user", content: "Hello" }],
+      tool_choice: { type: "auto" },
+    });
+    expect(out.tools).toBeUndefined();
+    expect(out.tool_choice).toBeUndefined();
+  });
+});

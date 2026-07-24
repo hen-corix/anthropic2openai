@@ -65,6 +65,26 @@ function mapFinishReason(reason) {
     }
 }
 
+/** Map Anthropic tool_choice → OpenAI tool_choice */
+function mapToolChoice(toolChoice) {
+    if (typeof toolChoice === "string") {
+        // Some clients pass the Anthropic type directly as a bare string
+        toolChoice = {type: toolChoice};
+    }
+    switch (toolChoice.type) {
+        case "auto":
+            return "auto";
+        case "none":
+            return "none";
+        case "any":
+            return "required";
+        case "tool":
+            return {type: "function", function: {name: toolChoice.name}};
+        default:
+            return "auto";
+    }
+}
+
 // ---------- request conversion ----------
 
 /**
@@ -229,6 +249,9 @@ function anthropicToOpenAI(body) {
     if (body.max_tokens != null) openaiReq.max_tokens = body.max_tokens;
     if (body.temperature != null) openaiReq.temperature = body.temperature;
     if (body.top_p != null) openaiReq.top_p = body.top_p;
+    if (body.top_k != null) {
+        console.warn("top_k is not supported by the OpenAI Chat Completions API and will not be forwarded");
+    }
     if (body.stop_sequences) {
         if (body.stop_sequences.length > 4) {
             console.warn(`stop_sequences has ${body.stop_sequences.length} items, truncating to 4 (OpenAI limit)`);
@@ -246,6 +269,10 @@ function anthropicToOpenAI(body) {
                 parameters: t.input_schema || {},
             },
         }));
+        // tool_choice is only valid alongside tool definitions (OpenAI rejects it otherwise)
+        if (body.tool_choice != null) {
+            openaiReq.tool_choice = mapToolChoice(body.tool_choice);
+        }
     }
 
     if (body.stream) {
@@ -569,20 +596,9 @@ function sendSSE(res, event, data) {
 
 app.post("/v1/messages", async (req, res) => {
     const startTime = Date.now();
-    const messagesContent = (req.body.messages || []).filter(m => m.role === 'assistant').map(m => m.content || '').map(c => JSON.stringify(c) || '').join(' ').substring(0, 100);
-    let bodyLength = Buffer.byteLength(JSON.stringify(req.body), 'utf8');
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${bodyLength}b - content: "${messagesContent}${messagesContent.length >= 100 ? '...' : ''}"`);
     try {
-        const anthropicBody = req.body;
-        const openaiBody = anthropicToOpenAI(anthropicBody);
-
-        // Determine actual model being used
-        const mappedModel = MODEL_MAP[anthropicBody.model];
-        const actualModel = mappedModel || OPENAI_MODEL;
-
-        // Validate API key presence before proceeding
-        const apiKey = (process.env.A2O_OPENAI_API_KEY || "").trim();
-        if (!apiKey) {
+        // Validate API key presence before doing any conversion or logging work
+        if (!OPENAI_API_KEY) {
             console.error("A2O_OPENAI_API_KEY environment variable is required and cannot be empty");
             return res.status(401).json({
                 type: "error",
@@ -593,9 +609,21 @@ app.post("/v1/messages", async (req, res) => {
             });
         }
 
+        const messagesContent = (Array.isArray(req.body.messages) ? req.body.messages : [])
+            .filter(m => m && m.role === 'assistant').map(m => m.content || '').map(c => JSON.stringify(c) || '').join(' ').substring(0, 100);
+        const bodyLength = Buffer.byteLength(JSON.stringify(req.body), 'utf8');
+        console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${bodyLength}b - content: "${messagesContent}${messagesContent.length >= 100 ? '...' : ''}"`);
+
+        const anthropicBody = req.body;
+        const openaiBody = anthropicToOpenAI(anthropicBody);
+
+        // Determine actual model being used
+        const mappedModel = MODEL_MAP[anthropicBody.model];
+        const actualModel = mappedModel || OPENAI_MODEL;
+
         const headers = {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
         };
 
         const openaiRes = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
@@ -711,7 +739,7 @@ function readEnvironmentVariables() {
     }
 
     // (Re)read environment variables each time the server starts/restarts
-    LOG_FILE = process.env.A2O_LOG_FILE || "messages.log";
+    LOG_FILE = process.env.A2O_LOG_FILE || null;
     OPENAI_BASE_URL = (
         process.env.A2O_OPENAI_BASE_URL || "https://api.openai.com/v1"
     ).replace(/\/+$/, "");
@@ -726,14 +754,19 @@ function readEnvironmentVariables() {
                 console.error("A2O_MODEL_MAP must be a JSON object");
                 return {};
             }
-            const invalid = Object.entries(parsed).filter(
-                ([k, v]) => typeof k !== "string" || typeof v !== "string" || v.trim() === ""
-            );
-            if (invalid.length) {
-                console.error("A2O_MODEL_MAP contains invalid entries:", invalid);
-                return {};
+            const valid = {};
+            const invalid = [];
+            for (const [k, v] of Object.entries(parsed)) {
+                if (typeof k === "string" && typeof v === "string" && v.trim() !== "") {
+                    valid[k] = v;
+                } else {
+                    invalid.push([k, v]);
+                }
             }
-            return parsed;
+            if (invalid.length) {
+                console.error("A2O_MODEL_MAP contains invalid entries, ignoring them:", invalid);
+            }
+            return valid;
         } catch (e) {
             console.error("Failed to parse A2O_MODEL_MAP JSON", e);
             return {};

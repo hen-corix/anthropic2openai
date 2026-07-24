@@ -1,13 +1,14 @@
 const request = require('supertest');
+// Must be set before requiring index.js: the API key is captured into a
+// module-level variable at load time and no longer re-read from process.env
+// per request.
+process.env.A2O_OPENAI_API_KEY = 'test-key';
 const { app } = require('../index');
 
 // No custom mock helper; we'll use jest-fetch-mock directly in each test
 describe('Error path tests', () => {
   beforeEach(() => {
-    jest.resetModules();
     global.fetch = jest.fn();
-    // Ensure env var for API key is set for tests
-    process.env.A2O_OPENAI_API_KEY = 'test-key';
   });
 
 

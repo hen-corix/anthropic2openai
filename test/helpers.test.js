@@ -73,26 +73,31 @@ describe('Helper function tests', () => {
     consoleSpy.mockRestore();
   });
 
-  test('MODEL_MAP parsing: invalid entries with empty string values are rejected', () => {
+  test('MODEL_MAP parsing: valid entries survive alongside invalid ones (partial validation)', () => {
     jest.resetModules();
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    process.env.A2O_MODEL_MAP = '{"valid-model":"gpt-4o","invalid-model":""}';
+    process.env.A2O_MODEL_MAP = '{"valid-model":"gpt-4o-mini","invalid-model":""}';
     const { anthropicToOpenAI } = require('../index');
-    const body = { model: 'valid-model', messages: [] };
-    const result = anthropicToOpenAI(body);
-    // Since map has invalid entries, whole map is rejected
-    expect(result.model).toBe(process.env.A2O_OPENAI_MODEL || 'gpt-4o');
+    // The valid entry must still be applied even though the map also contains an invalid one
+    expect(anthropicToOpenAI({ model: 'valid-model', messages: [] }).model).toBe('gpt-4o-mini');
+    // The invalid entry itself must not be applied (falls back to default)
+    expect(anthropicToOpenAI({ model: 'invalid-model', messages: [] }).model)
+      .toBe(process.env.A2O_OPENAI_MODEL || 'gpt-4o');
+    expect(consoleSpy).toHaveBeenCalledWith(
+      'A2O_MODEL_MAP contains invalid entries, ignoring them:',
+      [['invalid-model', '']]
+    );
     consoleSpy.mockRestore();
   });
 
-  test('MODEL_MAP parsing: non-string keys or values are rejected', () => {
+  test('MODEL_MAP parsing: entries with non-string keys or values are rejected individually', () => {
     jest.resetModules();
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     process.env.A2O_MODEL_MAP = '{"model":123}';
     const { anthropicToOpenAI } = require('../index');
     const body = { model: 'model', messages: [] };
     const result = anthropicToOpenAI(body);
-    // Since value is not a string, map is rejected
+    // The only entry is invalid, so it is dropped and the default model is used
     expect(result.model).toBe(process.env.A2O_OPENAI_MODEL || 'gpt-4o');
     consoleSpy.mockRestore();
   });
