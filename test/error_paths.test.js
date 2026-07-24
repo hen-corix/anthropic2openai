@@ -29,7 +29,7 @@ describe('Error path tests', () => {
     });
   });
 
-  test('Fetch rejection results in 500 response', async () => {
+  test('Fetch rejection results in 500 response with generic message (no internal detail leak)', async () => {
     global.fetch.mockRejectedValue(new Error('Network failure'));
     const res = await request(app)
       .post('/v1/messages')
@@ -37,7 +37,7 @@ describe('Error path tests', () => {
       .expect(500);
     expect(res.body).toMatchObject({
       type: 'error',
-      error: { type: 'api_error', message: 'Network failure' },
+      error: { type: 'api_error', message: 'Internal proxy error.' },
     });
   });
 
@@ -69,7 +69,7 @@ describe('Error path tests', () => {
     });
   });
 
-  test('Generic server error results in 500 response', async () => {
+  test('Generic server error results in 500 response with generic message', async () => {
     global.fetch.mockRejectedValue(new Error('Something unexpected happened'));
     const res = await request(app)
       .post('/v1/messages')
@@ -77,7 +77,21 @@ describe('Error path tests', () => {
       .expect(500);
     expect(res.body).toMatchObject({
       type: 'error',
-      error: { type: 'api_error', message: 'Something unexpected happened' },
+      error: { type: 'api_error', message: 'Internal proxy error.' },
+    });
+  });
+
+  test('Upstream timeout (AbortError) results in 504 response', async () => {
+    const abortErr = new Error('The operation was aborted');
+    abortErr.name = 'AbortError';
+    global.fetch.mockRejectedValue(abortErr);
+    const res = await request(app)
+      .post('/v1/messages')
+      .send({ model: 'gpt-4.1', messages: [] })
+      .expect(504);
+    expect(res.body).toMatchObject({
+      type: 'error',
+      error: { type: 'upstream_error', message: 'Upstream request timed out.' },
     });
   });
 

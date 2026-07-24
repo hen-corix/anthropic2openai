@@ -10,6 +10,9 @@ let OPENAI_API_KEY;
 let OPENAI_MODEL;
 let MODEL_MAP = {};
 let LOG_FILE;
+let UPSTREAM_TIMEOUT_MS;
+let DEBUG_SSE;
+let DEBUG_REQUESTS;
 readEnvironmentVariables()
 
 const app = express();
@@ -210,6 +213,11 @@ function anthropicToOpenAI(body) {
                         } else {
                             resultContent = "";
                         }
+                        // OpenAI tool messages have no error flag; preserve the
+                        // Anthropic is_error signal inline so it is not lost.
+                        if (tr.is_error) {
+                            resultContent = "[tool error] " + resultContent;
+                        }
                         messages.push({
                             role: "tool",
                             tool_call_id: tr.tool_use_id,
@@ -252,7 +260,7 @@ function anthropicToOpenAI(body) {
     if (body.top_k != null) {
         console.warn("top_k is not supported by the OpenAI Chat Completions API and will not be forwarded");
     }
-    if (body.stop_sequences) {
+    if (Array.isArray(body.stop_sequences) && body.stop_sequences.length > 0) {
         if (body.stop_sequences.length > 4) {
             console.warn(`stop_sequences has ${body.stop_sequences.length} items, truncating to 4 (OpenAI limit)`);
         }
@@ -588,7 +596,9 @@ async function streamOpenAIToAnthropic(openaiResponse, res, requestModel) {
 }
 
 function sendSSE(res, event, data) {
-    console.debug(`[SSE] event: ${event}`, JSON.stringify(data));
+    // console.debug is an alias for console.log in Node (NOT suppressed), so this
+    // is opt-in to avoid writing full conversation content to stdout by default.
+    if (DEBUG_SSE) console.debug(`[SSE] event: ${event}`, JSON.stringify(data));
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
@@ -596,6 +606,7 @@ function sendSSE(res, event, data) {
 
 app.post("/v1/messages", async (req, res) => {
     const startTime = Date.now();
+    let timer = null;
     try {
         // Validate API key presence before doing any conversion or logging work
         if (!OPENAI_API_KEY) {
@@ -609,10 +620,15 @@ app.post("/v1/messages", async (req, res) => {
             });
         }
 
-        const messagesContent = (Array.isArray(req.body.messages) ? req.body.messages : [])
-            .filter(m => m && m.role === 'assistant').map(m => m.content || '').map(c => JSON.stringify(c) || '').join(' ').substring(0, 100);
         const bodyLength = Buffer.byteLength(JSON.stringify(req.body), 'utf8');
-        console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${bodyLength}b - content: "${messagesContent}${messagesContent.length >= 100 ? '...' : ''}"`);
+        if (DEBUG_REQUESTS) {
+            // Opt-in: logs a preview of conversation content to stdout.
+            const messagesContent = (Array.isArray(req.body.messages) ? req.body.messages : [])
+                .filter(m => m && m.role === 'assistant').map(m => m.content || '').map(c => JSON.stringify(c) || '').join(' ').substring(0, 100);
+            console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${bodyLength}b - content: "${messagesContent}"`);
+        } else {
+            console.log(`[${new Date().toISOString()}] ${req.method} ${req.path} - ${bodyLength}b`);
+        }
 
         const anthropicBody = req.body;
         const openaiBody = anthropicToOpenAI(anthropicBody);
@@ -626,10 +642,18 @@ app.post("/v1/messages", async (req, res) => {
             Authorization: `Bearer ${OPENAI_API_KEY}`,
         };
 
+        // Abort the upstream request if it does not respond within the timeout,
+        // so a hanging backend cannot keep proxy connections open indefinitely.
+        const controller = new AbortController();
+        if (UPSTREAM_TIMEOUT_MS > 0) {
+            timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+        }
+
         const openaiRes = await fetch(`${OPENAI_BASE_URL}/chat/completions`, {
             method: "POST",
             headers,
             body: JSON.stringify(openaiBody),
+            signal: controller.signal,
         });
 
         if (!openaiRes.ok) {
@@ -664,6 +688,18 @@ app.post("/v1/messages", async (req, res) => {
             res.json(anthropicRes);
         }
     } catch (err) {
+        // Upstream aborted because it exceeded A2O_UPSTREAM_TIMEOUT_MS
+        if (err.name === 'AbortError') {
+            console.error("Upstream request aborted (timeout):", err.message);
+            return res.status(504).json({
+                type: "error",
+                error: {
+                    type: "upstream_error",
+                    message: "Upstream request timed out.",
+                },
+            });
+        }
+
         // Provide more specific error responses based on error type
         const isNetworkError = err.name === 'FetchError' ||
             (err instanceof TypeError && (
@@ -707,21 +743,37 @@ app.post("/v1/messages", async (req, res) => {
                 },
             });
         } else {
-            // Generic server error
+            // Generic server error — keep details server-side, don't leak to client
             console.error("Proxy error:", err);
             res.status(500).json({
                 type: "error",
                 error: {
                     type: "api_error",
-                    message: err.message,
+                    message: "Internal proxy error.",
                 },
             });
         }
+    } finally {
+        if (timer) clearTimeout(timer);
     }
 });
 
 // Health check
 app.get("/health", (_req, res) => res.json({status: "ok"}));
+
+// Malformed request body (e.g. invalid JSON, body too large) → Anthropic-shaped
+// error instead of Express's default HTML response, so Anthropic clients can
+// parse it. The 4-arg signature is what makes Express treat this as error middleware.
+app.use((err, _req, res, _next) => {
+    console.error("Malformed request body:", err.message);
+    res.status(400).json({
+        type: "error",
+        error: {
+            type: "invalid_request_error",
+            message: "Invalid request body.",
+        },
+    });
+});
 
 // ---------- exports ----------
 
@@ -740,6 +792,13 @@ function readEnvironmentVariables() {
 
     // (Re)read environment variables each time the server starts/restarts
     LOG_FILE = process.env.A2O_LOG_FILE || null;
+    // Upstream request timeout in ms (0 disables it); guards against a hanging
+    // OpenAI-compatible backend keeping proxy connections open indefinitely.
+    const rawTimeout = parseInt(process.env.A2O_UPSTREAM_TIMEOUT_MS, 10);
+    UPSTREAM_TIMEOUT_MS = Number.isInteger(rawTimeout) && rawTimeout >= 0 ? rawTimeout : 600000;
+    // Opt-in verbose logging (both write conversation content to stdout).
+    DEBUG_SSE = !!process.env.A2O_DEBUG_SSE;
+    DEBUG_REQUESTS = !!process.env.A2O_DEBUG_REQUESTS;
     OPENAI_BASE_URL = (
         process.env.A2O_OPENAI_BASE_URL || "https://api.openai.com/v1"
     ).replace(/\/+$/, "");
@@ -829,14 +888,21 @@ function startServer() {
         }
     }
 
+    // Bind to loopback by default so the proxy (which uses the server-side
+    // OpenAI key for every request, without client auth) is not exposed to the
+    // network. Set A2O_BIND_HOST=0.0.0.0 to deliberately listen on all interfaces.
+    const bindHost = process.env.A2O_BIND_HOST || "127.0.0.1";
+    const isLoopback = bindHost === "127.0.0.1" || bindHost === "::1" || bindHost === "localhost";
+    const displayHost = isLoopback ? "localhost" : bindHost;
+
     let server;
     if (sslOptions) {
-        server = https.createServer(sslOptions, app).listen(port, () => {
-            console.log(`anthropic2openai proxy listening on https://localhost:${port}`);
+        server = https.createServer(sslOptions, app).listen(port, bindHost, () => {
+            console.log(`anthropic2openai proxy listening on https://${displayHost}:${port}`);
         });
     } else {
-        server = app.listen(port, () => {
-            console.log(`anthropic2openai proxy listening on http://localhost:${port}`);
+        server = app.listen(port, bindHost, () => {
+            console.log(`anthropic2openai proxy listening on http://${displayHost}:${port}`);
         });
     }
     console.log(`Forwarding to: ${OPENAI_BASE_URL}/chat/completions`);

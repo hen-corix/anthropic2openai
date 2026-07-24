@@ -130,6 +130,61 @@ test("anthropicToOpenAI converts image with URL source", () => {
   });
 });
 
+test("anthropicToOpenAI converts image with base64 source to a data URL", () => {
+  const { anthropicToOpenAI } = require("../index");
+
+  const out = anthropicToOpenAI({
+    model: "claude-anything",
+    messages: [{
+      role: "user",
+      content: [{
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "QUJD" },
+      }],
+    }],
+  });
+
+  expect(out.messages[0].content[0]).toEqual({
+    type: "image_url",
+    image_url: { url: "data:image/png;base64,QUJD" },
+  });
+});
+
+test("anthropicToOpenAI prefixes tool_result content when is_error is set", () => {
+  const { anthropicToOpenAI } = require("../index");
+
+  const out = anthropicToOpenAI({
+    model: "claude-anything",
+    messages: [{
+      role: "user",
+      content: [{
+        type: "tool_result",
+        tool_use_id: "tool_err",
+        content: "boom",
+        is_error: true,
+      }],
+    }],
+  });
+
+  expect(out.messages[0]).toEqual({
+    role: "tool",
+    tool_call_id: "tool_err",
+    content: "[tool error] boom",
+  });
+});
+
+test("anthropicToOpenAI omits stop when stop_sequences is an empty array", () => {
+  const { anthropicToOpenAI } = require("../index");
+
+  const out = anthropicToOpenAI({
+    model: "claude-anything",
+    messages: [{ role: "user", content: "Hello" }],
+    stop_sequences: [],
+  });
+
+  expect(out.stop).toBeUndefined();
+});
+
 test("anthropicToOpenAI handles tool result with array content", () => {
   const { anthropicToOpenAI } = require("../index");
 

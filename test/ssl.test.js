@@ -135,4 +135,15 @@ nK4YMK5xL+7DAm8qUw==
     expect(timedOut).toBe(false);
     expect(output).toMatch(/anthropic2openai proxy listening on http:\/\/localhost:3458/i);
   }, 10000);
+
+  test('shows the configured host in the startup log for a non-loopback bind host', async () => {
+    const env = {
+      A2O_PROXY_PORT: '3459',
+      A2O_OPENAI_API_KEY: 'test',
+      A2O_BIND_HOST: '0.0.0.0',
+    };
+    const { output, timedOut } = await runProxyInProcess(env);
+    expect(timedOut).toBe(false);
+    expect(output).toMatch(/anthropic2openai proxy listening on http:\/\/0\.0\.0\.0:3459/i);
+  }, 10000);
 });

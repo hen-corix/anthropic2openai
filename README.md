@@ -8,7 +8,7 @@ A lightweight Node.js proxy that accepts [Anthropic Messages API](https://docs.a
 - System prompts (string and array form)
 - Multi-modal content (text + images)
 - Tool use (definitions, tool_use, tool_result round-trips, tool_choice — forwarded only when `tools` are also present)
-- All common sampling parameters (temperature, top_p, max_tokens, stop_sequences)
+- All common sampling parameters (temperature, top_p, max_tokens, stop_sequences) — `temperature` is passed through unchanged (Anthropic's 0–1 range is **not** rescaled to OpenAI's 0–2)
 - `top_k` is accepted but not forwarded (no OpenAI equivalent); a warning is logged when it is set
 - Runtime API key validation with descriptive error responses
 - Graceful handling of upstream API errors
@@ -24,18 +24,26 @@ npm install
 
 All settings are configured via environment variables:
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `A2O_OPENAI_API_KEY` | Yes | — | API key for the upstream OpenAI-compatible endpoint |
-| `A2O_OPENAI_BASE_URL` | No | `https://api.openai.com/v1` | Base URL of the OpenAI-compatible API (no trailing slash) |
-| `A2O_OPENAI_MODEL` | No | `gpt-4o` | Model identifier to use for all requests |
-| `A2O_MODEL_MAP` | No | `{}` | JSON map from Anthropic model names to OpenAI model names |
-| `A2O_PROXY_PORT` | No | `3456` | Local TCP port the proxy listens on |
-| `A2O_SSL_KEY_PATH` | No | `""` | Filesystem path to TLS private key (PEM) |
-| `A2O_SSL_CERT_PATH` | No | `""` | Filesystem path to TLS certificate (PEM) |
-| `A2O_LOG_FILE` | No | — (logging disabled) | Path to log message conversations (JSON Lines format); logging is opt-in |
+| Variable                  | Required | Default                     | Description                                                                                 |
+|---------------------------|----------|-----------------------------|---------------------------------------------------------------------------------------------|
+| `A2O_OPENAI_API_KEY`      | Yes      | —                           | API key for the upstream OpenAI-compatible endpoint                                         |
+| `A2O_OPENAI_BASE_URL`     | No       | `https://api.openai.com/v1` | Base URL of the OpenAI-compatible API (no trailing slash)                                   |
+| `A2O_OPENAI_MODEL`        | No       | `gpt-4o`                    | Model identifier to use for all requests                                                    |
+| `A2O_MODEL_MAP`           | No       | `{}`                        | JSON map from Anthropic model names to OpenAI model names                                   |
+| `A2O_PROXY_PORT`          | No       | `3456`                      | Local TCP port the proxy listens on                                                         |
+| `A2O_BIND_HOST`           | No       | `127.0.0.1`                 | Network interface to bind. Loopback by default; set `0.0.0.0` to expose (see security note) |
+| `A2O_UPSTREAM_TIMEOUT_MS` | No       | `600000`                    | Abort the upstream request after this many milliseconds; `0` disables the timeout           |
+| `A2O_SSL_KEY_PATH`        | No       | `""`                        | Filesystem path to TLS private key (PEM)                                                    |
+| `A2O_SSL_CERT_PATH`       | No       | `""`                        | Filesystem path to TLS certificate (PEM)                                                    |
+| `A2O_LOG_FILE`            | No       | — (logging disabled)        | Path to log message conversations (JSON Lines format); logging is opt-in                    |
+| `A2O_DEBUG_REQUESTS`      | No       | — (off)                     | When set, logs a preview of each request's conversation content to stdout                   |
+| `A2O_DEBUG_SSE`           | No       | — (off)                     | When set, logs every emitted SSE event (incl. full content) to stdout while streaming       |
 
 Copy `.env.example` to `.env` and fill in your values, or export them directly.
+
+> **Security note:** the proxy performs no client authentication — every request is forwarded upstream using the server-side `A2O_OPENAI_API_KEY`. It therefore binds to `127.0.0.1` by default. Only set `A2O_BIND_HOST=0.0.0.0` if you accept that anyone able to reach the port can spend against your upstream key, and put your own authentication/network controls in front of it.
+
+> **Debug logging note:** `A2O_DEBUG_REQUESTS` and `A2O_DEBUG_SSE` both write conversation content to stdout and are off by default. They are independent of `A2O_LOG_FILE` (structured JSON Lines to a file).
 
 ## Usage
 
